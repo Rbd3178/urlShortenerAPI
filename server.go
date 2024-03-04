@@ -37,16 +37,24 @@ type concurrentTree struct {
 var data concurrentTree
 
 func getLinks(c *gin.Context) {
+	prefix, ok := c.GetQuery("prefix")
 	var links []link
 
 	data.pendingWriters.Wait()
 	data.treeLock.RLock()
 	defer data.treeLock.RUnlock()
-	
-	for _, pair := range data.links.InOrder() {
-		links = append(links, link{Alias: pair[0].(string), URL: pair[1].(string)})
-	}
 
+	if !ok || prefix == "" {
+		for _, pair := range data.links.InOrder() {
+			links = append(links, link{Alias: pair[0].(string), URL: pair[1].(string)})
+		}
+	} else {
+		nextPrefix := prefix[:len(prefix)-1] + string(prefix[len(prefix)-1]+1)
+		for _, pair := range data.links.Range(prefix, nextPrefix) {
+			links = append(links, link{Alias: pair[0].(string), URL: pair[1].(string)})
+		}
+	}
+	
 	c.IndentedJSON(http.StatusOK, links)
 }
 
@@ -59,38 +67,11 @@ func getLinkByAlias(c *gin.Context) {
 
 	url, err := data.links.At(alias)
 	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "No link with passed alias"})
+		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Alias not found"})
 		return
 	}
 
 	c.IndentedJSON(http.StatusOK, link{Alias: alias, URL: url})
-}
-
-func getLinksByPrefix(c *gin.Context) {
-	prefix, ok := c.GetQuery("prefix")
-
-	if !ok {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Missing prefix parameter"})
-		return
-	}
-
-	if prefix == "" {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Empty prefix parameter"})
-		return
-	}
-
-	nextPrefix := prefix[:len(prefix)-1] + string(prefix[len(prefix)-1]+1)
-	var links []link
-
-	data.pendingWriters.Wait()
-	data.treeLock.RLock()
-	defer data.treeLock.RUnlock()
-	
-	for _, pair := range data.links.Range(prefix, nextPrefix) {
-		links = append(links, link{Alias: pair[0].(string), URL: pair[1].(string)})
-	}
-
-	c.IndentedJSON(http.StatusOK, links)
 }
 
 func addLink(c *gin.Context) {
@@ -139,13 +120,36 @@ func addLink(c *gin.Context) {
 	c.IndentedJSON(http.StatusCreated, newLink)
 }
 
+func deleteLink(c *gin.Context) {
+	alias := c.Param("alias")
+
+	data.WGLock.Lock()
+	data.pendingWriters.Add(1)
+	data.WGLock.Unlock()
+	defer func() {
+		data.WGLock.Lock()
+		data.pendingWriters.Done()
+		data.WGLock.Unlock()
+	}()
+
+	data.treeLock.Lock()
+	defer data.treeLock.Unlock()
+
+	err := data.links.Delete(alias)
+	if err != nil {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Alias not found"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func main() {
 	data.links.Insert("vids", "https://www.youtube.com")
 	data.links.Insert("docs", "https://gobyexample.com")
 	router := gin.Default()
 	router.GET("/links", getLinks)
 	router.GET("links/:alias", getLinkByAlias)
-	router.GET("links/filter", getLinksByPrefix)
 	router.POST("/links", addLink)
+	router.DELETE("/links/:alias", deleteLink)
 	router.Run("localhost:8090")
 }
