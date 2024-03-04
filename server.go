@@ -81,6 +81,11 @@ func addLink(c *gin.Context) {
 	data.treeLock.Lock()
 	defer data.treeLock.Unlock()
 
+	if newLink.Alias == "" {
+		maxAlias, _, _ := data.links.Max()
+		newLink.Alias = shortestNext(maxAlias)
+	}
+
 	err = data.links.Insert(newLink.Alias, newLink.URL)
 	if err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Alias is already taken"})
