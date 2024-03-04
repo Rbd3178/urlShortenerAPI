@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"sync"
 
 	"github.com/Rbd3178/redBlackTree/tree"
@@ -48,12 +49,52 @@ func getLinks(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, links)
 }
 
-func addLink(c *gin.Context)
+func addLink(c *gin.Context) {
+	var newLink link
+
+	err := c.BindJSON(&newLink)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if newLink.URL == "" {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "URL is required"})
+		return
+	}
+
+	parsed, err := url.Parse(newLink.URL)
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Invalid URL"})
+		return
+	}
+
+	data.WGLock.Lock()
+	data.pendingWriters.Add(1)
+	data.WGLock.Unlock()
+	defer func() {
+		data.WGLock.Lock()
+		data.pendingWriters.Done()
+		data.WGLock.Unlock()
+	}()
+
+	data.treeLock.Lock()
+	defer data.treeLock.Unlock()
+
+	err = data.links.Insert(newLink.Alias, newLink.URL)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Alias is already taken"})
+		return
+	}
+
+	c.IndentedJSON(http.StatusCreated, newLink)
+}
 
 func main() {
-	data.links.Insert("aboba", "https://www.youtube.com")
-	data.links.Insert("bebra", "https://gobyexample.com")
+	data.links.Insert("vids", "https://www.youtube.com")
+	data.links.Insert("docs", "https://gobyexample.com")
 	router := gin.Default()
 	router.GET("/links", getLinks)
+	router.POST("/links", addLink)
 	router.Run("localhost:8090")
 }
