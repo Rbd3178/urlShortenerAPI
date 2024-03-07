@@ -143,6 +143,41 @@ func deleteLink(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func modifyURL(c *gin.Context) {
+	alias := c.Param("alias")
+	var newLink link
+	err := c.BindJSON(&newLink)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if newLink.Alias == "" {
+		newLink.Alias = alias
+	}
+	if newLink.Alias != alias {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"error": "Alias cannot be changed"})
+		return
+	}
+
+	data.WGLock.Lock()
+	data.pendingWriters.Add(1)
+	data.WGLock.Unlock()
+	defer func() {
+		data.WGLock.Lock()
+		data.pendingWriters.Done()
+		data.WGLock.Unlock()
+	}()
+
+	data.treeLock.Lock()
+	defer data.treeLock.Unlock()
+	err = data.links.Assign(alias, newLink.URL)
+	if err != nil {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "Alias not found"})
+		return
+	}
+	c.IndentedJSON(http.StatusOK, newLink)
+}
+
 func main() {
 	data.links.Insert("vids", "https://www.youtube.com")
 	data.links.Insert("docs", "https://gobyexample.com")
@@ -150,6 +185,7 @@ func main() {
 	router.GET("/links", getLinks)
 	router.GET("links/:alias", getLinkByAlias)
 	router.POST("/links", addLink)
+	router.PATCH("/links/:alias", modifyURL)
 	router.DELETE("/links/:alias", deleteLink)
 	router.Run("localhost:8090")
 }
