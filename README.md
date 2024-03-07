@@ -37,7 +37,19 @@ Send a `POST` request to endpoint `/links` with a `.json` body:
 }
 ```
 ```bash
-curl localhost:8090/link --request "POST" -d @body.json --header "Content-Type: application/json" 
+curl localhost:8090/links --request "POST" -d @body.json --header "Content-Type: application/json" 
+```
+
+### Change url at alias
+Send a `PATCH` request to endpoint `/links/<alias>` with a `.json` body:
+```json
+{
+    "url": "https://www.other.com"
+}
+```
+There should be no alias field in json or it should be equal to current alias.
+```bash
+curl localhost:8090/links/link --request "PATCH" -d @new_body.json --header "Content-Type: application/json"
 ```
 
 ### Delete an alias
